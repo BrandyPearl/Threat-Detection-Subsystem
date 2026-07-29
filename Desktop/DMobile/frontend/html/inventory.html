@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inventory · D.MOBILE</title>
+<link rel="stylesheet" href="../css/styles.css">
+</head>
+<body>
+<script src="../js/data.js"></script>
+<script src="../js/app.js"></script>
+<script>
+const user = mountShell("inventory", "Inventory Management", "Products, categories and stock levels");
+let editId = null;
+
+if (user) render();
+
+function render() {
+  const q = (document.getElementById("q") || {}).value || "";
+  const cat = (document.getElementById("cat") || {}).value || "All";
+  const st = (document.getElementById("st") || {}).value || "All";
+
+  const list = DB.data.products.filter(p => {
+    const s = stockState(p).text;
+    return (cat === "All" || p.category === cat) &&
+      (st === "All" || s === st) &&
+      (p.name + p.brand + p.model + p.imei).toLowerCase().includes(q.toLowerCase());
+  });
+
+  document.getElementById("content").innerHTML =
+    '<div class="toolbar">' +
+      '<input id="q" placeholder="Search name, brand, model or IMEI…" style="min-width:280px" value="' + q + '">' +
+      select("cat", ["All", "Phones", "Accessories"], cat) +
+      select("st", ["All", "In stock", "Almost out", "Out of stock"], st) +
+      '<span class="spacer"></span>' +
+      '<button class="btn btn-ghost" id="adjBtn">Stock adjustment</button>' +
+      '<button class="btn" id="addBtn">+ Add product</button>' +
+    '</div>' +
+    '<div class="grid g4" style="margin-bottom:18px">' +
+      mini("Total products", DB.data.products.length) +
+      mini("Units in stock", num(DB.data.products.reduce((t, p) => t + p.qty, 0))) +
+      mini("Stock value (cost)", money(DB.data.products.reduce((t, p) => t + p.cost * p.qty, 0))) +
+      mini("Low / out of stock", DB.data.products.filter(p => p.qty <= DB.data.settings.lowStock).length) +
+    '</div>' +
+    '<div class="card"><div class="table-wrap"><table><thead><tr>' +
+      '<th>Product</th><th>Category</th><th>IMEI</th><th class="right">Cost</th><th class="right">Selling</th><th class="right">Qty</th><th>Status</th><th class="right">Actions</th>' +
+    '</tr></thead><tbody>' +
+      (list.length ? list.map(p => {
+        const s = stockState(p);
+        return '<tr><td><strong>' + p.name + '</strong><br><span style="color:var(--muted);font-size:12px">' + p.brand + ' · ' + p.model + '</span></td>' +
+          '<td><span class="pill blue">' + p.category + '</span></td>' +
+          '<td style="font-family:monospace;font-size:12px">' + (p.imei || "—") + '</td>' +
+          '<td class="right">' + money(p.cost) + '</td><td class="right">' + money(p.price) + '</td>' +
+          '<td class="right"><strong>' + p.qty + '</strong></td>' +
+          '<td><span class="pill ' + s.cls + '">' + s.text + '</span></td>' +
+          '<td class="right"><button class="btn btn-ghost btn-sm" onclick="openForm(' + p.id + ')">Edit</button> ' +
+          '<button class="btn btn-red btn-sm" onclick="del(' + p.id + ')">Delete</button></td></tr>';
+      }).join("") : '<tr><td colspan="8" class="empty">No products match your filters.</td></tr>') +
+    '</tbody></table></div></div>' +
+    modal();
+
+  document.getElementById("q").oninput = render;
+  document.getElementById("cat").onchange = render;
+  document.getElementById("st").onchange = render;
+  document.getElementById("addBtn").onclick = () => openForm(null);
+  document.getElementById("adjBtn").onclick = openAdjust;
+}
+
+function mini(l, v) { return '<div class="card stat"><div class="label">' + l + '</div><div class="value" style="font-size:22px">' + v + '</div></div>'; }
+function select(id, opts, val) {
+  return '<select id="' + id + '">' + opts.map(o => '<option' + (o === val ? " selected" : "") + '>' + o + '</option>').join("") + '</select>';
+}
+function modal() {
+  return '<div class="modal-back" id="mb"><div class="modal" id="mbody"></div></div>';
+}
+function closeModal() { document.getElementById("mb").classList.remove("show"); }
+
+function openForm(id) {
+  editId = id;
+  const p = DB.data.products.find(x => x.id === id) || { name: "", brand: "", model: "", imei: "", category: "Phones", cost: "", price: "", qty: "" };
+  document.getElementById("mbody").innerHTML =
+    '<h3>' + (id ? "Edit product" : "Add new product") + '</h3>' +
+    f("Product name", "f_name", p.name) + f("Brand", "f_brand", p.brand) + f("Model", "f_model", p.model) +
+    f("IMEI (phones only)", "f_imei", p.imei) +
+    '<div class="field"><label>Category</label><select id="f_cat"><option' + (p.category === "Phones" ? " selected" : "") + '>Phones</option><option' + (p.category === "Accessories" ? " selected" : "") + '>Accessories</option></select></div>' +
+    '<div class="grid g3">' + f("Cost price", "f_cost", p.cost, "number") + f("Selling price", "f_price", p.price, "number") + f("Quantity", "f_qty", p.qty, "number") + '</div>' +
+    '<div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn" onclick="saveProduct()">Save product</button></div>';
+  document.getElementById("mb").classList.add("show");
+}
+function f(label, id, val, type) {
+  return '<div class="field"><label>' + label + '</label><input id="' + id + '" type="' + (type || "text") + '" value="' + (val === undefined ? "" : val) + '"></div>';
+}
+function saveProduct() {
+  const v = id => document.getElementById(id).value;
+  const obj = {
+    name: v("f_name"), brand: v("f_brand"), model: v("f_model"), imei: v("f_imei"),
+    category: v("f_cat"), cost: +v("f_cost") || 0, price: +v("f_price") || 0, qty: +v("f_qty") || 0
+  };
+  if (!obj.name) { toast("Product name is required"); return; }
+  if (editId) Object.assign(DB.data.products.find(x => x.id === editId), obj);
+  else DB.data.products.push(Object.assign({ id: Date.now() }, obj));
+  DB.data.logs.unshift({ id: Date.now(), date: new Date().toISOString(), user: session().name, action: (editId ? "Edited" : "Added") + " product: " + obj.name });
+  DB.save(); closeModal(); render(); toast("Product saved");
+}
+function del(id) {
+  const p = DB.data.products.find(x => x.id === id);
+  if (!confirm("Delete " + p.name + "?")) return;
+  DB.data.products = DB.data.products.filter(x => x.id !== id);
+  DB.data.logs.unshift({ id: Date.now(), date: new Date().toISOString(), user: session().name, action: "Deleted product: " + p.name });
+  DB.save(); render(); toast("Product deleted");
+}
+function openAdjust() {
+  document.getElementById("mbody").innerHTML =
+    '<h3>Manual stock adjustment</h3>' +
+    '<div class="field"><label>Product</label><select id="a_p">' + DB.data.products.map(p => '<option value="' + p.id + '">' + p.name + ' (' + p.qty + ' in stock)</option>').join("") + '</select></div>' +
+    '<div class="grid g2">' +
+      '<div class="field"><label>Change (+/-)</label><input id="a_q" type="number" value="1"></div>' +
+      '<div class="field"><label>Reason</label><select id="a_r"><option>Restock</option><option>Damaged unit</option><option>Returned by customer</option><option>Stock count correction</option><option>Lost / theft</option></select></div>' +
+    '</div>' +
+    '<div class="field"><label>Note</label><textarea id="a_n" rows="2" placeholder="Optional detail for the activity log"></textarea></div>' +
+    '<div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn" onclick="applyAdjust()">Apply adjustment</button></div>';
+  document.getElementById("mb").classList.add("show");
+}
+function applyAdjust() {
+  const p = DB.data.products.find(x => x.id === +document.getElementById("a_p").value);
+  const q = +document.getElementById("a_q").value || 0;
+  p.qty = Math.max(0, p.qty + q);
+  DB.data.logs.unshift({ id: Date.now(), date: new Date().toISOString(), user: session().name,
+    action: "Stock adjustment: " + p.name + " " + (q > 0 ? "+" : "") + q + " (" + document.getElementById("a_r").value + ") " + document.getElementById("a_n").value });
+  DB.save(); closeModal(); render(); toast("Stock adjusted and logged");
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Query data · D.MOBILE</title>
+<link rel="stylesheet" href="../css/styles.css">
+</head>
+<body>
+<script src="../js/data.js"></script>
+<script src="../js/app.js"></script>
+<script>
+const user = mountShell("query", "Query Data", "Super Admin direct queries — profit, loss and revenue");
+if (user) shell();
+
+function shell() {
+  document.getElementById("content").innerHTML =
+    '<div class="card"><h3>Build a query</h3><div class="card-sub">Ask the system for figures shop-wide or filtered to one product</div>' +
+      '<div class="grid g4">' +
+        '<div class="field"><label>Metric</label><select id="metric"><option>Revenue</option><option>Gross profit</option><option>Cost of goods</option><option>Units sold</option><option>Stock value</option></select></div>' +
+        '<div class="field"><label>Scope</label><select id="scope"><option>Whole shop</option>' + DB.data.products.map(p => '<option value="' + p.id + '">' + p.name + '</option>').join("") + '</select></div>' +
+        '<div class="field"><label>Period</label><select id="period"><option>Today</option><option selected>Last 7 days</option><option>Last 30 days</option><option>All time</option></select></div>' +
+        '<div class="field"><label>&nbsp;</label><button class="btn btn-block" id="run">Run query</button></div>' +
+      '</div>' +
+      '<div style="font-size:12px;color:var(--muted)">Quick questions: ' +
+        '<button class="btn btn-ghost btn-sm" onclick="quick(\'Gross profit\',\'All time\')">Total profit ever</button> ' +
+        '<button class="btn btn-ghost btn-sm" onclick="quick(\'Revenue\',\'Last 7 days\')">How much did I sell this week?</button> ' +
+        '<button class="btn btn-ghost btn-sm" onclick="quick(\'Stock value\',\'All time\')">How much stock do I have?</button>' +
+      '</div>' +
+    '</div>' +
+    '<div id="result" style="margin-top:18px"></div>';
+  document.getElementById("run").onclick = run;
+  run();
+}
+
+function quick(m, p) {
+  document.getElementById("metric").value = m;
+  document.getElementById("period").value = p;
+  document.getElementById("scope").value = "Whole shop";
+  run();
+}
+
+function run() {
+  const metric = document.getElementById("metric").value;
+  const scopeVal = document.getElementById("scope").value;
+  const period = document.getElementById("period").value;
+  const days = period === "Today" ? 1 : period === "Last 7 days" ? 7 : period === "Last 30 days" ? 30 : 3650;
+  const now = new Date();
+  const pid = scopeVal === "Whole shop" ? null : +scopeVal;
+
+  const rows = [];
+  DB.data.sales.filter(s => (now - new Date(s.date)) / 86400000 <= days).forEach(s => {
+    s.items.filter(i => !pid || i.pid === pid).forEach(i => {
+      rows.push({ id: s.id, date: s.date, name: i.name, qty: i.qty, rev: i.qty * i.price, cost: i.qty * i.cost, staff: s.staff });
+    });
+  });
+
+  const rev = rows.reduce((t, r) => t + r.rev, 0);
+  const cost = rows.reduce((t, r) => t + r.cost, 0);
+  const units = rows.reduce((t, r) => t + r.qty, 0);
+  const stockVal = DB.data.products.filter(p => !pid || p.id === pid).reduce((t, p) => t + p.cost * p.qty, 0);
+
+  const answer =
+    metric === "Revenue" ? money(rev) :
+    metric === "Gross profit" ? money(rev - cost) :
+    metric === "Cost of goods" ? money(cost) :
+    metric === "Units sold" ? num(units) + " units" : money(stockVal);
+
+  const isLoss = metric === "Gross profit" && rev - cost < 0;
+
+  document.getElementById("result").innerHTML =
+    '<div class="card" style="border-left:5px solid var(--red)">' +
+      '<div class="label" style="font-size:11px;letter-spacing:1.2px;color:var(--muted);text-transform:uppercase">' +
+        metric + ' · ' + (pid ? DB.data.products.find(p => p.id === pid).name : "Whole shop") + ' · ' + period + '</div>' +
+      '<div style="font-size:40px;font-weight:800;margin:10px 0;color:' + (isLoss ? "var(--red)" : "var(--blue)") + '">' + answer + '</div>' +
+      '<div style="font-size:13px;color:var(--muted)">Based on ' + rows.length + ' matching sale line(s). ' +
+      'Revenue ' + money(rev) + ' · cost ' + money(cost) + ' · margin ' + (rev ? Math.round((rev - cost) / rev * 100) : 0) + '%.</div>' +
+    '</div>' +
+    '<div class="section-title">Matching records</div>' +
+    '<div class="card"><div class="table-wrap"><table><thead><tr><th>Receipt</th><th>Date</th><th>Product</th><th>Staff</th><th class="right">Qty</th><th class="right">Revenue</th><th class="right">Profit</th></tr></thead><tbody>' +
+    (rows.length ? rows.sort((a, b) => new Date(b.date) - new Date(a.date)).map(r =>
+      '<tr><td><span class="pill blue">' + r.id + '</span></td><td>' + dt(r.date) + '</td><td>' + r.name + '</td><td>' + r.staff + '</td>' +
+      '<td class="right">' + r.qty + '</td><td class="right">' + money(r.rev) + '</td>' +
+      '<td class="right" style="color:' + (r.rev - r.cost < 0 ? "var(--red)" : "var(--ok)") + ';font-weight:700">' + money(r.rev - r.cost) + '</td></tr>').join("")
+      : '<tr><td colspan="7" class="empty">No sales match this query.</td></tr>') +
+    '</tbody></table></div></div>';
+}
+</script>
+</body>
+</html>

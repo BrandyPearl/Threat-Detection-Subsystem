@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Record sale · D.MOBILE</title>
+<link rel="stylesheet" href="../css/styles.css">
+</head>
+<body>
+<script src="../js/data.js"></script>
+<script src="../js/app.js"></script>
+<script>
+const user = mountShell("sales", "Record a Sale", "POS style entry — quick sale in under 30 seconds");
+let cart = [];
+if (user) render();
+
+function render() {
+  const q = (document.getElementById("q") || {}).value || "";
+  const available = DB.data.products.filter(p => p.qty > 0 && (p.name + p.brand + p.model).toLowerCase().includes(q.toLowerCase()));
+
+  document.getElementById("content").innerHTML =
+    '<div class="grid" style="grid-template-columns:1.55fr 1fr;align-items:start">' +
+      '<div class="card"><h3>Available goods</h3><div class="card-sub">Tap a product to add it to the sale</div>' +
+        '<div class="toolbar"><input id="q" placeholder="Search product…" style="flex:1" value="' + q + '"></div>' +
+        '<div class="table-wrap"><table><thead><tr><th>Product</th><th>Category</th><th class="right">Price</th><th class="right">Stock</th><th class="right"></th></tr></thead><tbody>' +
+        (available.length ? available.map(p =>
+          '<tr><td><strong>' + p.name + '</strong><br><span style="color:var(--muted);font-size:12px">' + p.brand + (p.imei ? " · IMEI " + p.imei : "") + '</span></td>' +
+          '<td><span class="pill blue">' + p.category + '</span></td><td class="right">' + money(p.price) + '</td>' +
+          '<td class="right">' + p.qty + '</td><td class="right"><button class="btn btn-sm" onclick="add(' + p.id + ')">Add</button></td></tr>'
+        ).join("") : '<tr><td colspan="5" class="empty">No products available.</td></tr>') +
+        '</tbody></table></div></div>' +
+
+      '<div class="card"><h3>Current sale</h3><div class="card-sub">Receipt preview</div>' +
+        (cart.length ? cart.map((c, i) =>
+          '<div class="cart-line"><span class="nm">' + c.name + '<br><span style="color:var(--muted);font-size:11px">' + money(c.price) + ' each</span></span>' +
+          '<button class="btn btn-ghost btn-sm" onclick="qty(' + i + ',-1)">−</button><strong>' + c.qty + '</strong>' +
+          '<button class="btn btn-ghost btn-sm" onclick="qty(' + i + ',1)">+</button>' +
+          '<span style="width:92px;text-align:right">' + money(c.price * c.qty) + '</span>' +
+          '<button class="btn btn-red btn-sm" onclick="rm(' + i + ')">×</button></div>'
+        ).join("") : '<div class="empty">No items yet. Add products from the left.</div>') +
+        '<div class="field" style="margin-top:16px"><label>Payment method</label><select id="pm"><option>Cash</option><option>MTN MoMo</option><option>Orange Money</option><option>Bank transfer</option></select></div>' +
+        '<div class="totals"><div><span>Items</span><span>' + cart.reduce((t, c) => t + c.qty, 0) + '</span></div>' +
+        '<div><span>Subtotal</span><span>' + money(total()) + '</span></div>' +
+        '<div class="grand"><span>Total</span><span>' + money(total()) + '</span></div></div>' +
+        '<button class="btn btn-block" style="margin-top:14px" onclick="complete()">Complete sale &amp; print receipt</button>' +
+      '</div>' +
+    '</div>' +
+    '<div class="modal-back" id="mb"><div class="modal" id="mbody"></div></div>';
+
+  document.getElementById("q").oninput = render;
+}
+
+function total() { return cart.reduce((t, c) => t + c.price * c.qty, 0); }
+function add(id) {
+  const p = DB.data.products.find(x => x.id === id);
+  const line = cart.find(c => c.pid === id);
+  if (line) { if (line.qty < p.qty) line.qty++; else return toast("Only " + p.qty + " in stock"); }
+  else cart.push({ pid: p.id, name: p.name, price: p.price, cost: p.cost, qty: 1 });
+  render();
+}
+function qty(i, d) {
+  const p = DB.data.products.find(x => x.id === cart[i].pid);
+  const n = cart[i].qty + d;
+  if (n < 1) return rm(i);
+  if (n > p.qty) return toast("Only " + p.qty + " in stock");
+  cart[i].qty = n; render();
+}
+function rm(i) { cart.splice(i, 1); render(); }
+
+function complete() {
+  if (!cart.length) return toast("Add at least one product");
+  const sale = {
+    id: "RC-" + (1043 + DB.data.sales.length),
+    date: new Date().toISOString(),
+    staff: user.name,
+    payment: document.getElementById("pm").value,
+    items: cart.map(c => ({ pid: c.pid, name: c.name, qty: c.qty, price: c.price, cost: c.cost }))
+  };
+  sale.items.forEach(i => { const p = DB.data.products.find(x => x.id === i.pid); if (p) p.qty = Math.max(0, p.qty - i.qty); });
+  DB.data.sales.unshift(sale);
+  DB.data.logs.unshift({ id: Date.now(), date: sale.date, user: user.name, action: "Recorded sale " + sale.id + " (" + money(saleTotal(sale)) + ")" });
+  DB.save();
+  showReceipt(sale);
+  cart = [];
+}
+
+function showReceipt(s) {
+  document.getElementById("mbody").innerHTML =
+    '<div class="receipt"><div style="text-align:center"><strong>D.MOBILE</strong><br>EXPERIENCE THE BEST<br>Opposite Burj Khalfa, Buea<br>Tel: 654823918</div><hr>' +
+    'Receipt: ' + s.id + '<br>Date: ' + dtt(s.date) + '<br>Served by: ' + s.staff + '<br>Payment: ' + s.payment + '<hr>' +
+    s.items.map(i => i.qty + " x " + i.name + '<span style="float:right">' + money(i.qty * i.price) + '</span>').join("<br>") +
+    '<hr><strong>TOTAL<span style="float:right">' + money(saleTotal(s)) + '</span></strong><hr>' +
+    '<div style="text-align:center">Thank you for your purchase!</div></div>' +
+    '<div class="modal-actions"><button class="btn btn-ghost" onclick="window.print()">Print</button><button class="btn" onclick="closeReceipt()">Done</button></div>';
+  document.getElementById("mb").classList.add("show");
+}
+function closeReceipt() { document.getElementById("mb").classList.remove("show"); render(); toast("Sale recorded, stock updated"); }
+</script>
+</body>
+</html>

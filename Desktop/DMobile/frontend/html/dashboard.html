@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard · D.MOBILE</title>
+<link rel="stylesheet" href="../css/styles.css">
+</head>
+<body>
+<script src="../js/data.js"></script>
+<script src="../js/app.js"></script>
+<script>
+const user = mountShell("dashboard", "Dashboard", "Overview of today's shop performance");
+if (user) {
+  const d = DB.data;
+  const now = new Date();
+  const inDays = (s, n) => (now - new Date(s)) / 86400000 <= n;
+
+  const today = d.sales.filter(s => new Date(s.date).toDateString() === now.toDateString());
+  const week = d.sales.filter(s => inDays(s.date, 7));
+  const month = d.sales.filter(s => inDays(s.date, 30));
+
+  const sum = arr => arr.reduce((t, s) => t + saleTotal(s), 0);
+  const profit = arr => arr.reduce((t, s) => t + saleTotal(s) - saleCost(s), 0);
+  const stockValue = d.products.reduce((t, p) => t + p.cost * p.qty, 0);
+  const low = d.products.filter(p => p.qty <= d.settings.lowStock);
+
+  // top products
+  const map = {};
+  d.sales.forEach(s => s.items.forEach(i => {
+    map[i.name] = map[i.name] || { qty: 0, rev: 0 };
+    map[i.name].qty += i.qty; map[i.name].rev += i.qty * i.price;
+  }));
+  const top = Object.entries(map).sort((a, b) => b[1].rev - a[1].rev).slice(0, 5);
+  const maxRev = top.length ? top[0][1].rev : 1;
+
+  // last 7 days bars
+  const days = [];
+  for (let i = 6; i >= 0; i--) {
+    const day = new Date(now.getTime() - i * 86400000);
+    const tot = d.sales.filter(s => new Date(s.date).toDateString() === day.toDateString()).reduce((t, s) => t + saleTotal(s), 0);
+    days.push({ label: day.toLocaleDateString("en-GB", { weekday: "short" }), tot });
+  }
+  const maxDay = Math.max(...days.map(x => x.tot), 1);
+
+  document.getElementById("content").innerHTML =
+    (low.length ? '<div class="alert red"><strong>Restock alert:</strong> ' + low.length + ' product(s) are almost out or out of stock. <a href="inventory.html" style="text-decoration:underline;font-weight:700">Review inventory</a></div>' : "") +
+    '<div class="grid g4">' +
+      statCard("Today's revenue", money(sum(today)), today.length + " sale(s) recorded") +
+      statCard("This week", money(sum(week)), week.length + " sale(s)") +
+      statCard("Profit (30 days)", money(profit(month)), "Revenue minus cost price") +
+      statCard("Stock value", money(stockValue), d.products.length + " products", true) +
+    '</div>' +
+
+    '<div class="grid g2" style="margin-top:18px">' +
+      '<div class="card"><h3>Sales · last 7 days</h3><div class="card-sub">Daily revenue trend</div>' +
+        '<div class="bars">' + days.map(x =>
+          '<div class="bar" title="' + money(x.tot) + '"><div class="fill" style="height:' + Math.max(4, (x.tot / maxDay) * 100) + '%"></div><span>' + x.label + '</span></div>'
+        ).join("") + '</div></div>' +
+      '<div class="card"><h3>Top selling products</h3><div class="card-sub">By revenue, all time</div>' +
+        (top.length ? top.map(([n, v]) =>
+          '<div style="margin-bottom:14px"><div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px"><span>' + n + '</span><strong>' + money(v.rev) + '</strong></div>' +
+          '<div class="progress"><i style="width:' + ((v.rev / maxRev) * 100) + '%"></i></div>' +
+          '<div style="font-size:11px;color:var(--muted);margin-top:4px">' + v.qty + ' unit(s) sold</div></div>'
+        ).join("") : '<div class="empty">No sales yet.</div>') +
+      '</div>' +
+    '</div>' +
+
+    '<div class="section-title">Low stock list</div>' +
+    '<div class="card"><div class="table-wrap"><table><thead><tr><th>Product</th><th>Category</th><th>Qty left</th><th>Status</th><th class="right">Reorder value</th></tr></thead><tbody>' +
+      (low.length ? low.map(p => {
+        const st = stockState(p);
+        return '<tr><td><strong>' + p.name + '</strong><br><span style="color:var(--muted);font-size:12px">' + p.brand + ' · ' + p.model + '</span></td>' +
+          '<td>' + p.category + '</td><td>' + p.qty + '</td><td><span class="pill ' + st.cls + '">' + st.text + '</span></td>' +
+          '<td class="right">' + money(p.cost * 10) + '</td></tr>';
+      }).join("") : '<tr><td colspan="5" class="empty">All products are above the low-stock threshold.</td></tr>') +
+    '</tbody></table></div></div>' +
+
+    '<div class="section-title">Recent sales</div>' +
+    '<div class="card"><div class="table-wrap"><table><thead><tr><th>Receipt</th><th>Date</th><th>Staff</th><th>Payment</th><th>Items</th><th class="right">Total</th></tr></thead><tbody>' +
+      d.sales.slice().sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 6).map(s =>
+        '<tr><td><span class="pill blue">' + s.id + '</span></td><td>' + dtt(s.date) + '</td><td>' + s.staff + '</td><td>' + s.payment + '</td><td>' + s.items.length + '</td><td class="right"><strong>' + money(saleTotal(s)) + '</strong></td></tr>'
+      ).join("") +
+    '</tbody></table></div></div>';
+}
+
+function statCard(label, value, delta, red) {
+  return '<div class="card stat' + (red ? " red" : "") + '"><div class="label">' + label + '</div><div class="value">' + value + '</div><div class="delta">' + delta + '</div></div>';
+}
+</script>
+</body>
+</html>

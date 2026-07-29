@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>User management · D.MOBILE</title>
+<link rel="stylesheet" href="../css/styles.css">
+</head>
+<body>
+<script src="../js/data.js"></script>
+<script src="../js/app.js"></script>
+<script>
+const user = mountShell("users", "User Management", "Create and manage Admin and Staff accounts");
+let editId = null;
+if (user) render();
+
+function render() {
+  document.getElementById("content").innerHTML =
+    '<div class="toolbar"><span class="spacer"></span>' +
+      '<button class="btn btn-ghost" id="thrBtn">Stock alert threshold (' + DB.data.settings.lowStock + ')</button>' +
+      '<button class="btn" id="addBtn">+ New account</button></div>' +
+    '<div class="card"><div class="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Created</th><th>Status</th><th class="right">Actions</th></tr></thead><tbody>' +
+    DB.data.users.map(u =>
+      '<tr><td><div style="display:flex;align-items:center;gap:10px"><div class="avatar">' + initials(u.name) + '</div><strong>' + u.name + '</strong></div></td>' +
+      '<td>' + u.email + '</td><td><span class="pill ' + (u.role === "Super Admin" ? "bad" : u.role === "Admin" ? "blue" : "ok") + '">' + u.role + '</span></td>' +
+      '<td>' + dt(u.created) + '</td><td><span class="pill ' + (u.active ? "ok" : "warn") + '">' + (u.active ? "Active" : "Deactivated") + '</span></td>' +
+      '<td class="right"><button class="btn btn-ghost btn-sm" onclick="openForm(' + u.id + ')">Edit</button> ' +
+      '<button class="btn btn-ghost btn-sm" onclick="toggle(' + u.id + ')">' + (u.active ? "Deactivate" : "Activate") + '</button> ' +
+      (u.role === "Super Admin" ? "" : '<button class="btn btn-red btn-sm" onclick="del(' + u.id + ')">Delete</button>') + '</td></tr>').join("") +
+    '</tbody></table></div></div>' +
+    '<div class="section-title">Role permissions</div>' +
+    '<div class="grid g3">' +
+      perm("Super Admin", ["Full access to every module", "Manage staff &amp; admin accounts", "Products, categories, stock", "All financial reports", "Direct data queries", "Activity logs &amp; thresholds"]) +
+      perm("Admin", ["Products &amp; categories", "Available goods listing", "Record sales", "Update inventory", "Sales reports", "No staff management"]) +
+      perm("Staff", ["Record sales (POS)", "View available stock (read-only)", "View own sales history", "No financial reports", "No staff management", "Cannot delete records"]) +
+    '</div>' +
+    '<div class="modal-back" id="mb"><div class="modal" id="mbody"></div></div>';
+  document.getElementById("addBtn").onclick = () => openForm(null);
+  document.getElementById("thrBtn").onclick = openThreshold;
+}
+
+function perm(role, items) {
+  return '<div class="card"><h3>' + role + '</h3><div class="card-sub">Permission set</div>' +
+    items.map(i => '<div style="font-size:13px;padding:7px 0;border-top:1px solid var(--line)">• ' + i + '</div>').join("") + '</div>';
+}
+function closeModal() { document.getElementById("mb").classList.remove("show"); }
+function openForm(id) {
+  editId = id;
+  const u = DB.data.users.find(x => x.id === id) || { name: "", email: "", role: "Staff", password: "" };
+  document.getElementById("mbody").innerHTML =
+    '<h3>' + (id ? "Edit account" : "Create account") + '</h3>' +
+    '<div class="field"><label>Full name</label><input id="u_name" value="' + u.name + '"></div>' +
+    '<div class="field"><label>Email</label><input id="u_email" type="email" value="' + u.email + '"></div>' +
+    '<div class="field"><label>Role</label><select id="u_role">' + ["Super Admin", "Admin", "Staff"].map(r => '<option' + (r === u.role ? " selected" : "") + '>' + r + '</option>').join("") + '</select></div>' +
+    '<div class="field"><label>' + (id ? "New password (leave blank to keep)" : "Temporary password") + '</label><input id="u_pass" type="text"></div>' +
+    '<div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn" onclick="save()">Save account</button></div>';
+  document.getElementById("mb").classList.add("show");
+}
+function save() {
+  const v = id => document.getElementById(id).value;
+  if (!v("u_name") || !v("u_email")) return toast("Name and email are required");
+  if (editId) {
+    const u = DB.data.users.find(x => x.id === editId);
+    u.name = v("u_name"); u.email = v("u_email"); u.role = v("u_role");
+    if (v("u_pass")) u.password = v("u_pass");
+  } else {
+    DB.data.users.push({ id: Date.now(), name: v("u_name"), email: v("u_email"), role: v("u_role"),
+      password: v("u_pass") || "changeme123", active: true, created: new Date().toISOString().slice(0, 10) });
+  }
+  DB.data.logs.unshift({ id: Date.now(), date: new Date().toISOString(), user: session().name, action: (editId ? "Updated" : "Created") + " account: " + v("u_name") });
+  DB.save(); closeModal(); render(); toast("Account saved");
+}
+function toggle(id) {
+  const u = DB.data.users.find(x => x.id === id);
+  u.active = !u.active;
+  DB.data.logs.unshift({ id: Date.now(), date: new Date().toISOString(), user: session().name, action: (u.active ? "Activated" : "Deactivated") + " account: " + u.name });
+  DB.save(); render(); toast("Account " + (u.active ? "activated" : "deactivated"));
+}
+function del(id) {
+  const u = DB.data.users.find(x => x.id === id);
+  if (!confirm("Delete account for " + u.name + "?")) return;
+  DB.data.users = DB.data.users.filter(x => x.id !== id);
+  DB.data.logs.unshift({ id: Date.now(), date: new Date().toISOString(), user: session().name, action: "Deleted account: " + u.name });
+  DB.save(); render(); toast("Account deleted");
+}
+function openThreshold() {
+  document.getElementById("mbody").innerHTML =
+    '<h3>Low stock alert threshold</h3>' +
+    '<div class="field"><label>Warn when quantity drops to or below</label><input id="t_v" type="number" value="' + DB.data.settings.lowStock + '"></div>' +
+    '<p style="font-size:12px;color:var(--muted)">Two tiers are shown across the system: "Almost out" at or below this number, and "Out of stock" at zero.</p>' +
+    '<div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn" onclick="saveThreshold()">Save</button></div>';
+  document.getElementById("mb").classList.add("show");
+}
+function saveThreshold() {
+  DB.data.settings.lowStock = +document.getElementById("t_v").value || 0;
+  DB.data.logs.unshift({ id: Date.now(), date: new Date().toISOString(), user: session().name, action: "Set low-stock threshold to " + DB.data.settings.lowStock + " units" });
+  DB.save(); closeModal(); render(); toast("Threshold updated");
+}
+</script>
+</body>
+</html>

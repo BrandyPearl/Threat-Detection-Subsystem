@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My sales · D.MOBILE</title>
+<link rel="stylesheet" href="../css/styles.css">
+</head>
+<body>
+<script src="../js/data.js"></script>
+<script src="../js/app.js"></script>
+<script>
+const user = mountShell("mysales", "My Sales History", "Only sales recorded by you");
+if (user) {
+  const mine = DB.data.sales.filter(s => s.staff === user.name).sort((a, b) => new Date(b.date) - new Date(a.date));
+  const rev = mine.reduce((t, s) => t + saleTotal(s), 0);
+  document.getElementById("content").innerHTML =
+    '<div class="grid g3" style="margin-bottom:18px">' +
+      '<div class="card stat"><div class="label">Sales recorded</div><div class="value">' + mine.length + '</div></div>' +
+      '<div class="card stat"><div class="label">Revenue generated</div><div class="value" style="font-size:22px">' + money(rev) + '</div></div>' +
+      '<div class="card stat red"><div class="label">Units sold</div><div class="value">' + mine.reduce((t, s) => t + s.items.reduce((a, i) => a + i.qty, 0), 0) + '</div></div>' +
+    '</div>' +
+    '<div class="card"><div class="table-wrap"><table><thead><tr><th>Receipt</th><th>Date</th><th>Items</th><th>Payment</th><th class="right">Total</th></tr></thead><tbody>' +
+    (mine.length ? mine.map(s =>
+      '<tr><td><span class="pill blue">' + s.id + '</span></td><td>' + dtt(s.date) + '</td>' +
+      '<td>' + s.items.map(i => i.qty + "× " + i.name).join("<br>") + '</td><td>' + s.payment + '</td>' +
+      '<td class="right"><strong>' + money(saleTotal(s)) + '</strong></td></tr>').join("")
+      : '<tr><td colspan="5" class="empty">You have not recorded any sales yet.</td></tr>') +
+    '</tbody></table></div></div>';
+}
+</script>
+</body>
+</html>

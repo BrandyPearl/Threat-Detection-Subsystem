@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Available stock · D.MOBILE</title>
+<link rel="stylesheet" href="../css/styles.css">
+</head>
+<body>
+<script src="../js/data.js"></script>
+<script src="../js/app.js"></script>
+<script>
+const user = mountShell("stock", "Available Stock", "Read-only view of what is currently for sale");
+if (user) render();
+
+function render() {
+  const q = (document.getElementById("q") || {}).value || "";
+  const list = DB.data.products.filter(p => (p.name + p.brand + p.model).toLowerCase().includes(q.toLowerCase()));
+  document.getElementById("content").innerHTML =
+    '<div class="toolbar"><input id="q" placeholder="Search stock…" style="min-width:300px" value="' + q + '"><span class="spacer"></span>' +
+    '<a class="btn" href="../html/sales.html">Record a sale</a></div>' +
+    '<div class="card"><div class="table-wrap"><table><thead><tr><th>Product</th><th>Category</th><th class="right">Price</th><th class="right">Qty</th><th>Status</th></tr></thead><tbody>' +
+    list.map(p => { const s = stockState(p);
+      return '<tr><td><strong>' + p.name + '</strong><br><span style="color:var(--muted);font-size:12px">' + p.brand + ' · ' + p.model + '</span></td>' +
+      '<td><span class="pill blue">' + p.category + '</span></td><td class="right">' + money(p.price) + '</td>' +
+      '<td class="right">' + p.qty + '</td><td><span class="pill ' + s.cls + '">' + s.text + '</span></td></tr>'; }).join("") +
+    '</tbody></table></div></div>';
+  document.getElementById("q").oninput = render;
+}
+</script>
+</body>
+</html>
